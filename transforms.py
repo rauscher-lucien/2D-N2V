@@ -325,6 +325,39 @@ class CropToMultipleOf16(object):
     
 
 
+class CropToMultipleOf16Inference(object):
+    """
+    Crop each slice in a stack of images to ensure their height and width are multiples of 32.
+    This is particularly useful for models that require input dimensions to be divisible by certain values.
+    """
+
+    def __call__(self, data):
+        """
+        Args:
+            stack (numpy.ndarray): Stack of images to be cropped, with shape (H, W, Num_Slices).
+
+        Returns:
+            numpy.ndarray: Stack of cropped images.
+        """
+
+        input_slice = data
+
+        h, w = data.shape
+
+        new_h = h - (h % 16)
+        new_w = w - (w % 16)
+
+        # Calculate cropping margins
+        top = (h - new_h) // 2
+        left = (w - new_w) // 2
+
+        # Generate indices for cropping
+        id_y = np.arange(top, top + new_h, 1)[:, np.newaxis].astype(np.int32)
+        id_x = np.arange(left, left + new_w, 1).astype(np.int32)
+
+        input_slice_cropped = input_slice[id_y, id_x].squeeze()
+
+        return input_slice_cropped
 
 
 class ToTensor(object):

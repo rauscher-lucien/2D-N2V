@@ -8,12 +8,10 @@ import logging
 from torchvision import transforms
 from torch.utils.tensorboard import SummaryWriter
 
-
 from utils import *
 from transforms import *
 from dataset import *
 from model import *
-
 
 class Trainer:
     def __init__(self, data_dict):
@@ -39,6 +37,7 @@ class Trainer:
         self.num_epoch = self.hyperparameters['num_epoch']
         self.batch_size = self.hyperparameters['batch_size']
         self.lr = self.hyperparameters['lr']
+        self.patience = self.hyperparameters['patience']
 
         self.device = get_device()
 
@@ -48,8 +47,6 @@ class Trainer:
         self.train_results_dir, self.val_results_dir = create_train_val_dir(self.results_dir)
 
         self.writer = SummaryWriter(self.results_dir + '/tensorboard_logs')
-
-
 
     def save(self, checkpoints_dir, model, optimizer, epoch):
         if not os.path.exists(checkpoints_dir):
@@ -97,7 +94,7 @@ class Trainer:
 
         transform_train = transforms.Compose([
             Normalize(mean, std),
-            RandomCrop(output_size=(64,64)),
+            RandomCrop(output_size=(64, 64)),
             RandomHorizontalFlip(),
             N2V_mask_generator_median(),
             ToTensor()
@@ -116,7 +113,7 @@ class Trainer:
 
         ### make dataset and loader ###
         dataset_train = N2VDataset(root_folder_path=self.train_data_dir,
-                                    transform=transform_train)
+                                   transform=transform_train)
 
         loader_train = torch.utils.data.DataLoader(
             dataset_train,
@@ -124,9 +121,9 @@ class Trainer:
             shuffle=True,
             num_workers=0
         )
-        
+
         dataset_val = N2VDataset(root_folder_path=self.val_data_dir,
-                                    transform=val_transform)
+                                 transform=val_transform)
 
         val_loader = torch.utils.data.DataLoader(
             dataset_val,
@@ -142,6 +139,7 @@ class Trainer:
 
         st_epoch = 0
         best_val_loss = float('inf')
+        patience_counter = 0
 
         if self.train_continue == 'on':
             print(self.checkpoints_dir)
@@ -157,7 +155,7 @@ class Trainer:
                 input_img, label, mask = data['input'].to(self.device), data['label'].to(self.device), data['mask'].to(self.device)
                 output_img = model(input_img)
                 loss = criterion(output_img * (1-mask), label * (1-mask))
-                train_loss += loss.item() 
+                train_loss += loss.item()
                 loss.backward()
                 optimizer.step()
 
@@ -177,8 +175,6 @@ class Trainer:
 
             print(f'Epoch [{epoch}/{self.num_epoch}], Train Loss: {avg_train_loss:.4f}')
 
-            avg_val_loss = float('inf')
-
             if epoch % self.val_freq == 0:
                 model.eval()  # Ensure model is in evaluation mode
                 val_loss = 0.0
@@ -193,9 +189,18 @@ class Trainer:
 
                 print(f'Epoch [{epoch}/{self.num_epoch}], Validation Loss: {avg_val_loss:.10f}')
 
-            if avg_val_loss < best_val_loss:
-                best_val_loss = avg_val_loss
-                self.save(self.checkpoints_dir, model, optimizer, epoch)
-                print(f"Saved best model at epoch {epoch} with validation loss {best_val_loss:.4f}.")
+                if avg_val_loss < best_val_loss:
+                    best_val_loss = avg_val_loss
+                    patience_counter = 0
+                    self.save(self.checkpoints_dir, model, optimizer, epoch)
+                    print(f"Saved best model at epoch {epoch} with validation loss {best_val_loss:.4f}.")
+                else:
+                    patience_counter += 1
+                    print(f"Patience counter: {patience_counter}")
+
+                if patience_counter >= self.patience:
+                    print("Early stopping due to no improvement in validation loss.")
+                    break
 
         self.writer.close()
+
